@@ -1,0 +1,12 @@
+{
+  "name": "digital-rain",
+  "owner": { "name": "MarkusDuskanich" },
+  "description": "Digital rain for Claude Code.",
+  "plugins": [
+    {
+      "name": "digital-rain",
+      "source": "./",
+      "description": "Green code rain above the prompt while Claude works."
+    }
+  ]
+}

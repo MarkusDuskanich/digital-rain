@@ -1,0 +1,9 @@
+{
+  "name": "digital-rain",
+  "version": "0.3.0",
+  "description": "Green Matrix code rain in the band above the prompt while Claude works; the band closes softly when the turn ends.",
+  "author": {
+    "name": "MarkusDuskanich"
+  },
+  "types": "./types/index.d.ts"
+}
