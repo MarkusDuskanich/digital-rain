@@ -143,7 +143,7 @@ export function SwitchOffSvg(seed: number, width: number): string {
     `<animate attributeName="r" values="5;5;3.5;1" keyTimes="0;0.52;0.76;1" dur="${Round(seconds)}s" fill="freeze"/></circle>`
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 ${drawn} ${height}" preserveAspectRatio="xMidYMid meet">` +
     `<style>text{font:bold 16px 'MS Gothic','Yu Gothic','Consolas',monospace;text-anchor:middle}</style>` +
     `<defs><radialGradient id="dot"><stop offset="0" stop-color="#f4fff0"/><stop offset="0.3" stop-color="${HEAD_COLOR}"/>` +
     `<stop offset="0.6" stop-color="#5dff7a" stop-opacity="0.6"/><stop offset="1" stop-color="#22ee55" stop-opacity="0"/></radialGradient></defs>` +
