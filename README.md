@@ -10,8 +10,9 @@ off like an old CRT television and slides closed.
   few symbols) stay put and only the light moves: each column has a pale cream head and a long,
   uneven green tail, with its own speed, trail length and tint.
 - **Smooth and cheap.** On the desktop app the rain is a single SVG that the app animates by
-  itself: one stepped gradient per column, no per-frame work by the mod. In a terminal it is a
-  monospace text rain.
+  itself, with no per-frame work by the mod. The picture changes only ten times a second, on
+  one shared clock, so the browser has nothing to repaint in between (about 8× less CPU than
+  0.3). In a terminal it is a monospace text rain.
 - **A soft ending.** The picture squashes into a bright line, the line pinches into a glowing
   dot that lingers for a blink, then the band slides closed so the chat doesn't jump.
 - **No tokens.** The mod never calls the model, adds nothing to the conversation or the system
@@ -60,15 +61,21 @@ clone (`claude plugin marketplace add <path to your clone>`):
 | `FLICKER_CHANCE` | share of cells that flicker between two glyphs (0 = none) |
 | `DIM_CHANCE` | share of glyphs drawn dimmer than their neighbours |
 | `SVG_ROWS`, `ROW_HEIGHT` | the band's height |
+| `TICK_SECONDS` | the shared clock; more ticks a second fall faster and cost more CPU |
+| `TICKS_PER_ROW` | the speed groups, in ticks per row a drop falls |
 
-Drop speed and the pauses between drops are in `BuildAt` (`step`, and the pause after each pass).
+Keep `TICK_SECONDS` a multiple of a millisecond, so the speed groups stay in step.
 
 ## How it works
 
 - `hooks/register.tsx` hooks the start and end of each turn, draws the band above the prompt
   (`ui.render` on `AbovePrompt`) and serves the `/digital-rain` command.
 - `hooks/svg-rain.ts` builds the desktop rain and the switch-off as SVG with SMIL animation.
-  The desktop reloads an SVG whenever its source or size changes, so the rain's source stays
+  The glyphs are a fixed mask and only the light behind them moves: each speed group's
+  trails are one tall drawing that a loop of SMIL `<set>`s moves down a row per step. A
+  running animation makes the browser repaint every frame of the display, while a `<set>`
+  wakes it only when it starts or ends, so between ticks nothing is drawn at all.
+- The desktop reloads an SVG whenever its source or size changes, so the rain's source stays
   fixed for a whole turn, the switch-off is a second SVG that plays by itself, and the closing
   shrinks an empty drawing.
 
@@ -80,6 +87,17 @@ claude plugin validate <path to your clone>
 
 ```bash
 claude plugin test <path to your clone>
+```
+
+Measure what the rain costs (Windows, Microsoft Edge, Node): render it, then time it in a
+private Edge window that draws it as the desktop does. Keep the window visible while it runs.
+
+```bash
+node bench/render.js hooks/svg-rain.ts bench/rain.svg 1400
+```
+
+```bash
+powershell -ExecutionPolicy Bypass -File bench/bench.ps1 -Svg rain.svg
 ```
 
 ## Notes
