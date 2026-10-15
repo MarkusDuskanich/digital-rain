@@ -43,11 +43,12 @@ If your organization's settings block plugins, the install is refused.
 
 | Command | What it does |
 |---|---|
-| `/digital-rain on` | Rain all the time, between turns too |
-| `/digital-rain off` | Back to the default: rain only while Claude works |
-| `/digital-rain` | Toggle between the two |
+| `/digital-rain always` | Rain all the time, between turns too |
+| `/digital-rain working` | The default: rain only while Claude works |
+| `/digital-rain never` | No rain and no band at all |
+| `/digital-rain` | A few seconds of rain, then the band closes again |
 
-The choice is saved and outlasts restarts. The default is off (rain only while Claude works).
+The setting is saved and outlasts restarts.
 
 ## Tuning
 

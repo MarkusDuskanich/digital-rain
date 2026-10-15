@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { Frame, Run, SvgRain } from '../types'
+import type { Frame, Run, Setting, SvgRain } from '../types'
 import { BuildRainSvg, MAX_SVG_WIDTH, PIXELS_PER_COLUMN, ROW_HEIGHT, SVG_ROWS, SWITCH_OFF_MS, SwitchOffSvg } from './svg-rain'
 
 const frame = atom({ plugin: 'digital-rain', key: 'frame' } as const, null)
@@ -45,9 +45,28 @@ let drops: Drop[] = []
 let cells: string[][] = [] // the glyph each cell shows when lit; stays put as drops pass
 let width: number = DEFAULT_WIDTH
 let isWorking: boolean = false
-// `/digital-rain on`: rain all the time, not only while a turn runs; kept across sessions.
-let alwaysOn: boolean = false
+// When it rains, set by `/digital-rain always | working | never` and kept across sessions:
+// all the time, only while Claude works (the default), or never (no band at all).
+let setting: Setting = 'working'
+const SETTINGS: ReadonlyArray<Setting> = ['always', 'working', 'never']
+const SETTING_KEY = 'setting'
+// The setting of 0.4 and before: true was `always`.
 const ALWAYS_ON_KEY = 'alwaysOn'
+// `/digital-rain` alone rains this long, whatever the setting, then closes.
+const PREVIEW_MS = 5000
+let previewTimer: Timer | null = null
+
+/** Whether the band rains now: by its setting, or a preview running. */
+function ShouldRain(): boolean {
+  return setting === 'always' || (setting === 'working' && isWorking) || previewTimer !== null
+}
+
+async function LoadSetting($: EngineInterface): Promise<Setting> {
+  const stored: unknown = await $.store.get(SETTING_KEY)
+  const known: Setting | undefined = SETTINGS.find(candidate => candidate === stored)
+  if (known !== undefined) return known
+  return (await $.store.get(ALWAYS_ON_KEY)) === true ? 'always' : 'working'
+}
 let workingSince: number = 0
 let timer: Timer | null = null
 // Set once the desktop has drawn its SVG rain: from then on the text rain, which only
@@ -74,7 +93,7 @@ function Step(): Frame | null {
   // A drop leaves once its tail has fallen out of the bottom.
   drops = drops.filter(drop => drop.head - drop.length + 1 < ROWS)
 
-  if (isWorking || alwaysOn) {
+  if (ShouldRain()) {
     const busy: Set<number> = new Set(drops.filter(d => d.head - d.length < 1).map(d => d.column))
     for (let column = 0; column < width; column++) {
       if (busy.has(column) || Math.random() >= SPAWN_CHANCE) continue
@@ -89,7 +108,7 @@ function Step(): Frame | null {
     }
   }
 
-  if (!isWorking && !alwaysOn && drops.length === 0) return null
+  if (!ShouldRain() && drops.length === 0) return null
 
   const shades: string[][] = Array.from({ length: ROWS }, () => Array(width).fill(''))
   for (const drop of drops) {
@@ -202,8 +221,8 @@ function CloseSoftly($: EngineInterface): void {
   })
 }
 
-// When a turn ends the rain stops: the terminal's band at once, the desktop's softly
-// (`softly` false, as after a reload, closes it at once too).
+// When the rain stops: the terminal's band at once, the desktop's softly (`softly`
+// false, as after a reload, closes it at once too).
 function StopTextRain(): void {
   drops = []
   if (timer !== null) {
@@ -213,7 +232,6 @@ function StopTextRain(): void {
 }
 
 async function StopRain($: EngineInterface, softly: boolean): Promise<void> {
-  isWorking = false
   StopTextRain()
   await update($, frame, () => null)
   const rain: SvgRain = await update($, svgRain, (current: SvgRain): SvgRain => {
@@ -238,17 +256,34 @@ async function StartRain($: EngineInterface): Promise<void> {
   Start($)
 }
 
+// `/digital-rain` alone: the rain for a few seconds, then it closes unless the setting
+// keeps it (a turn running under `working`, or `always`).
+async function Preview($: EngineInterface): Promise<void> {
+  previewTimer?.cancel()
+  previewTimer = $.clock.after(PREVIEW_MS, () => {
+    previewTimer = null
+    if (!ShouldRain()) void StopRain($, true)
+  })
+  await StartRain($)
+}
+
+const SETTING_TEXT: Record<Setting, string> = {
+  always: 'Digital rain: always.',
+  working: 'Digital rain: only while Claude works.',
+  never: 'Digital rain: never.',
+}
+
 export const register: Register = on => {
   // A reload (an update, or an edit to the mod) forgets the turn in progress, so
   // clear any rain a previous load left showing, then rain at once if it is always on.
   on('session.start', async ($, e, next) => {
-    alwaysOn = (await $.store.get(ALWAYS_ON_KEY)) === true
+    setting = await LoadSetting($)
     await StopRain($, false)
-    if (alwaysOn) await StartRain($)
+    if (ShouldRain()) await StartRain($)
     await $.command.register({
       name: 'digital-rain',
-      description: 'Digital rain: "on" keeps it raining all the time, "off" only while Claude works',
-      argumentHint: '[on|off]',
+      description: 'Digital rain: "always", "working" (only while Claude works) or "never"; alone, a few seconds of it',
+      argumentHint: '[always|working|never]',
       immediate: true,
     })
     return next(e)
@@ -256,26 +291,31 @@ export const register: Register = on => {
 
   on('command.run', { command: 'digital-rain' }, async ($, e) => {
     const argument: string = e.args.trim().toLowerCase()
-    if (argument !== '' && argument !== 'on' && argument !== 'off') {
-      return { text: 'Usage: /digital-rain on | off (no argument toggles)' }
+    if (argument === '') {
+      await Preview($)
+      return { text: 'Digital rain: a few seconds of it.' }
     }
-    alwaysOn = argument === '' ? !alwaysOn : argument === 'on'
-    await $.store.set(ALWAYS_ON_KEY, alwaysOn)
-    if (alwaysOn) await StartRain($)
-    else if (!isWorking) await StopRain($, true) // a running turn closes it when it ends
-    return { text: alwaysOn ? 'Digital rain: always on.' : 'Digital rain: only while Claude works.' }
+    const chosen: Setting | undefined = SETTINGS.find(candidate => candidate === argument)
+    if (chosen === undefined) {
+      return { text: 'Usage: /digital-rain always | working | never (no argument: a few seconds of it)' }
+    }
+    setting = chosen
+    await $.store.set(SETTING_KEY, setting)
+    if (ShouldRain()) await StartRain($)
+    else await StopRain($, true)
+    return { text: SETTING_TEXT[setting] }
   })
 
   on('turn.start', async ($, e, next) => {
     isWorking = true
     workingSince = await $.clock.now()
-    await StartRain($)
+    if (ShouldRain()) await StartRain($)
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
     isWorking = false
-    if (!alwaysOn) await StopRain($, true)
+    if (!ShouldRain()) await StopRain($, true)
     return next(e)
   })
 
@@ -284,7 +324,7 @@ export const register: Register = on => {
     // Safety net should a turn end without turn.complete.
     if (!e.props.isWorking && isWorking && (await $.clock.now()) - workingSince > 1500) {
       isWorking = false
-      if (!alwaysOn) await StopRain($, true)
+      if (!ShouldRain()) await StopRain($, true)
     }
 
     if (e.surface === 'desktop') {

@@ -83,15 +83,15 @@ test('a turn that starts while the desktop band closes brings the rain back', as
 // What the engine stamps on a command the person typed.
 const TYPED = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
 
-test('/digital-rain on keeps the rain going between turns and sessions, and off returns to the default', async ($, on) => {
+test('/digital-rain always keeps the rain going between turns and sessions, and working returns to the default', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
   Engine(on)
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   const band = () => $.ui.mount({ plugin: 'digital-rain', surface: 'desktop', component: 'AbovePrompt', props: BAND })
 
-  const turnedOn = await $.command.run({ ...TYPED, command: 'digital-rain', args: 'on' })
-  expect(turnedOn.text).toBe('Digital rain: always on.')
+  const always = await $.command.run({ ...TYPED, command: 'digital-rain', args: 'always' })
+  expect(always.text).toBe('Digital rain: always.')
   await clock.advance(500)
   const raining = await (await band()).find({ type: 'Svg' })
   expect(raining).toBeDefined()
@@ -108,10 +108,61 @@ test('/digital-rain on keeps the rain going between turns and sessions, and off 
   await clock.advance(500)
   expect(await (await band()).find({ type: 'Svg' })).toBeDefined()
 
-  const turnedOff = await $.command.run({ ...TYPED, command: 'digital-rain', args: 'off' })
-  expect(turnedOff.text).toBe('Digital rain: only while Claude works.')
+  const working = await $.command.run({ ...TYPED, command: 'digital-rain', args: 'working' })
+  expect(working.text).toBe('Digital rain: only while Claude works.')
   await clock.advance(3000)
   expect(await (await band()).find({ type: 'Svg' })).toBeUndefined()
+})
+
+test('/digital-rain never keeps the band empty, even while Claude works', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  Engine(on)
+  const band = () => $.ui.mount({ plugin: 'digital-rain', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  await clock.advance(1000)
+  expect(await (await band()).find({ type: 'Svg' })).toBeDefined()
+
+  // Mid-turn it closes at once rather than at the turn's end...
+  const never = await $.command.run({ ...TYPED, command: 'digital-rain', args: 'never' })
+  expect(never.text).toBe('Digital rain: never.')
+  await clock.advance(3000)
+  expect(await (await band()).find({ type: 'Svg' })).toBeUndefined()
+
+  // ...and the next turn brings none.
+  await $.turn.complete({ ...END, turnId: 't1' })
+  await $.turn.start({ text: 'again', turnId: 't2' })
+  await clock.advance(2000)
+  expect(await (await band()).find({ type: 'Svg' })).toBeUndefined()
+  expect(await (await $.ui.mount({ plugin: 'digital-rain', surface: 'terminal', component: 'AbovePrompt', props: BAND })).find({ type: 'Text' })).toBeUndefined()
+})
+
+test('/digital-rain alone rains for a few seconds and closes, whatever the setting', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on, { setting: 'never' })
+  Engine(on)
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const band = () => $.ui.mount({ plugin: 'digital-rain', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+
+  const preview = await $.command.run({ ...TYPED, command: 'digital-rain', args: '' })
+  expect(preview.text).toBe('Digital rain: a few seconds of it.')
+  await clock.advance(4000)
+  expect(await (await band()).find({ type: 'Svg' })).toBeDefined()
+  await clock.advance(3000)
+  expect(await (await band()).find({ type: 'Svg' })).toBeUndefined()
+})
+
+test('the old "on" setting still means always', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on, { alwaysOn: true })
+  Engine(on)
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  await clock.advance(500)
+  const band = await $.ui.mount({ plugin: 'digital-rain', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ type: 'Svg' })).toBeDefined()
 })
 
 test('/digital-rain with a wrong argument says how to use it', async $ => {
